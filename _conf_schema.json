@@ -23,6 +23,26 @@
             "winbw",
             "winxp"
         ],
+        "labels": [
+            "经典复刻",
+            "纯色风格",
+            "Hibbeler 风格",
+            "冰晶风格",
+            "马里奥主题",
+            "Maviz 风格",
+            "地雷主题",
+            "迷幻风格",
+            "海洋风格",
+            "吃豆人主题",
+            "铁血战士主题",
+            "手绘涂鸦风格",
+            "符号风格",
+            "未知风格",
+            "Windows Vista 风格",
+            "Windows 98 风格",
+            "Windows 黑白风格",
+            "Windows XP 风格"
+        ],
         "default": "winxp"
     },
     "difficulty_level": {
