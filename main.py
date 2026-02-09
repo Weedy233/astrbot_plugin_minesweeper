@@ -66,7 +66,7 @@ class MinesweeperPlugin(Star):
             yield event.plain_result("你已经在进行扫雷游戏了")
             return
 
-        if self.cfg.is_supported_level(level_name):
+        if not self.cfg.is_supported_level(level_name):
             yield event.plain_result(f"难度仅支持：{self.cfg.level_keys}")
             return
         spec = self.cfg.get_spec(level_name)
