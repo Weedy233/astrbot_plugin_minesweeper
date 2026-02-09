@@ -1,11 +1,11 @@
 import random
 from dataclasses import dataclass
-from pathlib import Path
 
 from PIL import Image
 from PIL.Image import Image as IMG
 
 from .model import GameSpec
+from .config import PluginConfig
 
 
 @dataclass
@@ -18,8 +18,9 @@ class Skin:
 
 
 class SkinManager:
-    def __init__(self, skins_dir: Path):
-        self.skins_dir = skins_dir
+    def __init__(self, config: PluginConfig):
+        self.cfg = config
+        self.skins_dir = config.skins_dir
 
         self._skin_names = []
         self._skin_cache: dict[tuple[str, int, int], Skin] = {}

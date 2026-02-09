@@ -2,7 +2,6 @@ import asyncio
 import re
 import shutil
 import threading
-from pathlib import Path
 
 from astrbot.api import logger
 from astrbot.api.event import filter
@@ -13,12 +12,12 @@ from astrbot.core.platform import AstrMessageEvent
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
     AiocqhttpMessageEvent,
 )
-from astrbot.core.star.star_tools import StarTools
 
 from .core.game import GameManager, MineSweeper
-from .core.model import GameSpec, MarkResult, OpenResult
+from .core.model import MarkResult, OpenResult
 from .core.renderer import MineSweeperRenderer
 from .core.skin import SkinManager
+from .core.config import PluginConfig
 from .core.utils import detect_desktop, parse_position, set_group_ban
 from .sender import MessageSender
 
@@ -26,27 +25,12 @@ from .sender import MessageSender
 class MinesweeperPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
-        self.config = config
-
-        self.level_preset: dict[str, GameSpec] = self._parse_difficulty_level(config)
-        self.level_keys = list(self.level_preset.keys())
-        if len(self.level_keys) == 0:
-            raise ValueError("没有配置扫雷难度")
-        self.default_preset = self.level_preset[self.level_keys[0]]
-
-        self.data_dir = StarTools.get_data_dir()
-        self.cache_dir = self.data_dir / "cache"
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-
-        self.skins_dir = Path(__file__).parent / "skins"
-        self.skin_mgr = SkinManager(self.skins_dir)
-
-        self.font_path = Path(__file__).parent / "font.ttf"
-
+        self.cfg = PluginConfig(config, context)
+        self.skin_mgr = SkinManager(self.cfg)
         self.game_mgr = GameManager()
-        self._cleanup_task: asyncio.Task | None = None
         self.sender = MessageSender(config)
 
+        self._cleanup_task: asyncio.Task | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
 
     async def initialize(self):
@@ -57,36 +41,23 @@ class MinesweeperPlugin(Star):
 
     async def terminate(self):
         """插件卸载时"""
-        # 重新创建缓存目录
-        if self.cache_dir.exists():
-            shutil.rmtree(self.cache_dir)
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        logger.info("[扫雷] 插件已卸载")
-
-    def _parse_difficulty_level(self, conf: dict) -> dict[str, GameSpec]:
-        result = {}
-
-        for item in conf.get("difficulty_level", []):
-            name, rows, cols, nums = item.split()
-            result[name] = GameSpec(int(rows), int(cols), int(nums))
-
-        return result
+        if self.cfg.cache_dir.exists():
+            shutil.rmtree(self.cfg.cache_dir)
 
     def _save_img_bytes(self, event: AstrMessageEvent, img_bytes: bytes) -> str:
         """把图片 bytes 落盘，返回绝对路径"""
         sid = event.session_id
         uid = event.get_sender_id()
         fname = f"{sid}_{uid}.png"
-        fpath = self.cache_dir / fname
+        fpath = self.cfg.cache_dir / fname
         fpath.write_bytes(img_bytes)
         return str(fpath.absolute())
-
 
     @filter.command("扫雷", alias={"开始扫雷"})
     async def start_minesweeper(
         self,
         event: AstrMessageEvent,
-        level: str = "",
+        level_name: str = "",
         skin_index: int | None = None,
     ):
         sid = event.session_id
@@ -95,22 +66,22 @@ class MinesweeperPlugin(Star):
             yield event.plain_result("你已经在进行扫雷游戏了")
             return
 
-        spec = self.level_preset.get(level, self.default_preset)
-        if level and level not in self.level_preset:
-            yield event.plain_result(f"难度仅支持：{list(self.level_preset.keys())}")
+        if not self.cfg.is_supported_level(level_name):
+            yield event.plain_result(f"难度仅支持：{self.cfg.level_keys}")
             return
+        spec = self.cfg.get_spec(level_name)
 
         skin_name = (
             self.skin_mgr.get_skin_by_index(skin_index - 1)
             if skin_index
-            else self.config["default_skin"]
+            else self.cfg.default_skin
         )
         skin = self.skin_mgr.load(skin_name, spec)
 
         renderer = MineSweeperRenderer(
             spec=spec,
             skin=skin,
-            font_path=str(self.font_path),
+            font_path=str(self.cfg.font_path),
         )
 
         game = MineSweeper(spec, renderer)
@@ -120,13 +91,15 @@ class MinesweeperPlugin(Star):
             img_bytes = game.draw()
             img_path = self._save_img_bytes(event, img_bytes)
             asyncio.run_coroutine_threadsafe(
-                self.sender.send_img_replace_last(event, img_path), self.loop # type: ignore
+                self.sender.send_img_replace_last(event, img_path),
+                self.loop,  # type: ignore
             )
 
         game.on_send_board(send_board)
 
-        if self.config["use_gui"] and detect_desktop():
+        if self.cfg.use_gui and detect_desktop():
             from .core.gui import start_gui
+
             threading.Thread(
                 target=start_gui,
                 args=(game,),
@@ -199,9 +172,9 @@ class MinesweeperPlugin(Star):
         if (
             game.is_fail
             and isinstance(event, AiocqhttpMessageEvent)
-            and self.config["ban_time"] > 0
+            and self.cfg.ban_time > 0
         ):
-            await set_group_ban(event, ban_time=self.config["ban_time"])
+            await set_group_ban(event, ban_time=self.cfg.ban_time)
 
     @filter.regex(r"^标雷(\s*[a-zA-Z][0-9]+)+$")
     async def mark_minesweeper(self, event: AstrMessageEvent):
