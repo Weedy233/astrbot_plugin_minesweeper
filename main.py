@@ -67,10 +67,6 @@ class MinesweeperPlugin(Star):
     def _build_custom_spec(rows: int, cols: int, mines: int) -> tuple[GameSpec | None, str | None]:
         if rows <= 0 or cols <= 0:
             return None, "行数和列数必须大于 0"
-        if rows > 26:
-            return None, "行数最高为 26"
-        if cols > 99:
-            return None, "列数最高为 99"
         if mines <= 0:
             return None, "雷数必须大于 0"
         if mines >= rows * cols:
@@ -167,7 +163,7 @@ class MinesweeperPlugin(Star):
                 Image.fromBytes(game.draw()),
                 Plain(
                     "a1b2c3 —— 挖开格子\n"
-                    "标雷 c4 / 'c4 / ' c4 —— 标记地雷\n"
+                    "标雷 c4 / 'c4 —— 标记地雷\n"
                     "雷盘 —— 查看棋盘\n"
                     "结束扫雷 —— 结束游戏"
                 ),
@@ -235,18 +231,13 @@ class MinesweeperPlugin(Star):
         ):
             await set_group_ban(event, ban_time=self.cfg.ban_time)
 
-    @filter.regex(r"^(标雷\s+|'\s*)([a-zA-Z][0-9]+|[a-zA-Z]-[a-zA-Z][0-9]+|[a-zA-Z][0-9]+-[0-9]+)(\s+([a-zA-Z][0-9]+|[a-zA-Z]-[a-zA-Z][0-9]+|[a-zA-Z][0-9]+-[0-9]+))*$")
+    @filter.regex(r"^标雷\s+([a-zA-Z][0-9]+|[a-zA-Z]-[a-zA-Z][0-9]+|[a-zA-Z][0-9]+-[0-9]+)(\s+([a-zA-Z][0-9]+|[a-zA-Z]-[a-zA-Z][0-9]+|[a-zA-Z][0-9]+-[0-9]+))*$")
     async def mark_minesweeper(self, event: AstrMessageEvent):
         game = self.game_mgr.get(event.session_id)
         if not game:
             return
 
-        message = event.message_str.strip()
-        if message.startswith("标雷"):
-            tokens = message.split()[1:]
-        else:
-            tokens = message[1:].strip().split()
-
+        tokens = event.message_str.split()[1:]
         positions, invalid_tokens = parse_position_tokens(tokens)
         msgs = []
 
