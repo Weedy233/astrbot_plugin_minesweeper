@@ -163,7 +163,7 @@ class MinesweeperPlugin(Star):
                 Image.fromBytes(game.draw()),
                 Plain(
                     "a1b2c3 —— 挖开格子\n"
-                    "标雷 c4 —— 标记地雷\n"
+                    "标雷 c4 / 'c4 —— 标记地雷\n"
                     "雷盘 —— 查看棋盘\n"
                     "结束扫雷 —— 结束游戏"
                 ),
