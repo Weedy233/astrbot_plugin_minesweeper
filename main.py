@@ -1,5 +1,4 @@
 import asyncio
-import re
 import shutil
 import threading
 
@@ -14,11 +13,16 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
 )
 
 from .core.game import GameManager, MineSweeper
-from .core.model import MarkResult, OpenResult
+from .core.model import GameSpec, MarkResult, OpenResult
 from .core.renderer import MineSweeperRenderer
 from .core.skin import SkinManager
 from .core.config import PluginConfig
-from .core.utils import detect_desktop, parse_position, set_group_ban
+from .core.utils import (
+    detect_desktop,
+    parse_position,
+    parse_position_tokens,
+    set_group_ban,
+)
 from .sender import MessageSender
 
 
@@ -53,12 +57,35 @@ class MinesweeperPlugin(Star):
         fpath.write_bytes(img_bytes)
         return str(fpath.absolute())
 
+    @staticmethod
+    def _parse_int(value: str) -> int | None:
+        if value and value.isdigit():
+            return int(value)
+        return None
+
+    @staticmethod
+    def _build_custom_spec(rows: int, cols: int, mines: int) -> tuple[GameSpec | None, str | None]:
+        if rows <= 0 or cols <= 0:
+            return None, "行数和列数必须大于 0"
+        if rows > 26:
+            return None, "行数最高为 26"
+        if cols > 99:
+            return None, "列数最高为 99"
+        if mines <= 0:
+            return None, "雷数必须大于 0"
+        if mines >= rows * cols:
+            return None, "雷数必须小于格子总数"
+        return GameSpec(rows, cols, mines), None
+
     @filter.command("扫雷", alias={"开始扫雷"})
     async def start_minesweeper(
         self,
         event: AstrMessageEvent,
-        level_name: str = "",
-        skin_index: int | None = None,
+        arg1: str = "",
+        arg2: str = "",
+        arg3: str = "",
+        arg4: str = "",
+        arg5: str = "",
     ):
         sid = event.session_id
 
@@ -66,10 +93,38 @@ class MinesweeperPlugin(Star):
             yield event.plain_result("你已经在进行扫雷游戏了")
             return
 
-        if not self.cfg.is_supported_level(level_name):
-            yield event.plain_result(f"难度仅支持：{self.cfg.level_keys}")
-            return
-        spec = self.cfg.get_spec(level_name)
+        spec: GameSpec | None = None
+        skin_index: int | None = None
+
+        if self.cfg.is_supported_level(arg1):
+            spec = self.cfg.get_spec(arg1)
+            skin_index = self._parse_int(arg2)
+        else:
+            custom_values: tuple[int, int, int] | None = None
+            row = self._parse_int(arg1)
+            col = self._parse_int(arg2)
+            mines = self._parse_int(arg3)
+            if row is not None and col is not None and mines is not None:
+                custom_values = (row, col, mines)
+                skin_index = self._parse_int(arg4)
+            elif arg1 == "自定义":
+                row = self._parse_int(arg2)
+                col = self._parse_int(arg3)
+                mines = self._parse_int(arg4)
+                if row is not None and col is not None and mines is not None:
+                    custom_values = (row, col, mines)
+                skin_index = self._parse_int(arg5)
+
+            if custom_values is None:
+                yield event.plain_result(
+                    "用法：扫雷 <难度> <皮肤序号> 或 扫雷 <行> <列> <雷数> <皮肤序号>"
+                )
+                return
+
+            spec, err = self._build_custom_spec(*custom_values)
+            if err:
+                yield event.plain_result(err)
+                return
 
         skin_name = (
             self.skin_mgr.get_skin_by_index(skin_index - 1)
@@ -135,14 +190,18 @@ class MinesweeperPlugin(Star):
 
         yield event.chain_result([Image.fromBytes(game.draw())])
 
-    @filter.regex(r"^([a-zA-Z][0-9]+)(\s*[a-zA-Z][0-9]+)*$")
+    @filter.regex(r"^([a-zA-Z][0-9]+|[a-zA-Z]-[a-zA-Z][0-9]+|[a-zA-Z][0-9]+-[0-9]+)(\s+([a-zA-Z][0-9]+|[a-zA-Z]-[a-zA-Z][0-9]+|[a-zA-Z][0-9]+-[0-9]+))*$")
     async def open_minesweeper(self, event: AstrMessageEvent):
         game = self.game_mgr.get(event.session_id)
         if not game:
             return
 
-        positions = re.findall(r"[a-zA-Z][0-9]+", event.message_str)
+        tokens = event.message_str.split()
+        positions, invalid_tokens = parse_position_tokens(tokens)
         msgs = []
+
+        if invalid_tokens:
+            msgs.append("不支持的坐标表达式: " + " ".join(invalid_tokens))
 
         for pos in positions:
             xy = parse_position(pos)
@@ -176,14 +235,18 @@ class MinesweeperPlugin(Star):
         ):
             await set_group_ban(event, ban_time=self.cfg.ban_time)
 
-    @filter.regex(r"^标雷(\s*[a-zA-Z][0-9]+)+$")
+    @filter.regex(r"^标雷\s+([a-zA-Z][0-9]+|[a-zA-Z]-[a-zA-Z][0-9]+|[a-zA-Z][0-9]+-[0-9]+)(\s+([a-zA-Z][0-9]+|[a-zA-Z]-[a-zA-Z][0-9]+|[a-zA-Z][0-9]+-[0-9]+))*$")
     async def mark_minesweeper(self, event: AstrMessageEvent):
         game = self.game_mgr.get(event.session_id)
         if not game:
             return
 
-        positions = re.findall(r"[a-zA-Z][0-9]+", event.message_str)
+        tokens = event.message_str.split()[1:]
+        positions, invalid_tokens = parse_position_tokens(tokens)
         msgs = []
+
+        if invalid_tokens:
+            msgs.append("不支持的坐标表达式: " + " ".join(invalid_tokens))
 
         for pos in positions:
             xy = parse_position(pos)
