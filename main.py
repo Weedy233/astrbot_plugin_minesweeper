@@ -1,5 +1,4 @@
 import asyncio
-import re
 import shutil
 import threading
 
@@ -18,7 +17,12 @@ from .core.model import GameSpec, MarkResult, OpenResult
 from .core.renderer import MineSweeperRenderer
 from .core.skin import SkinManager
 from .core.config import PluginConfig
-from .core.utils import detect_desktop, parse_position, set_group_ban
+from .core.utils import (
+    detect_desktop,
+    parse_position,
+    parse_position_tokens,
+    set_group_ban,
+)
 from .sender import MessageSender
 
 
@@ -182,14 +186,18 @@ class MinesweeperPlugin(Star):
 
         yield event.chain_result([Image.fromBytes(game.draw())])
 
-    @filter.regex(r"^([a-zA-Z][0-9]+)(\s*[a-zA-Z][0-9]+)*$")
+    @filter.regex(r"^([a-zA-Z][0-9]+|[a-zA-Z]-[a-zA-Z][0-9]+|[a-zA-Z][0-9]+-[0-9]+)(\s+([a-zA-Z][0-9]+|[a-zA-Z]-[a-zA-Z][0-9]+|[a-zA-Z][0-9]+-[0-9]+))*$")
     async def open_minesweeper(self, event: AstrMessageEvent):
         game = self.game_mgr.get(event.session_id)
         if not game:
             return
 
-        positions = re.findall(r"[a-zA-Z][0-9]+", event.message_str)
+        tokens = event.message_str.split()
+        positions, invalid_tokens = parse_position_tokens(tokens)
         msgs = []
+
+        if invalid_tokens:
+            msgs.append("不支持的坐标表达式: " + " ".join(invalid_tokens))
 
         for pos in positions:
             xy = parse_position(pos)
@@ -223,14 +231,18 @@ class MinesweeperPlugin(Star):
         ):
             await set_group_ban(event, ban_time=self.cfg.ban_time)
 
-    @filter.regex(r"^标雷(\s*[a-zA-Z][0-9]+)+$")
+    @filter.regex(r"^标雷\s+([a-zA-Z][0-9]+|[a-zA-Z]-[a-zA-Z][0-9]+|[a-zA-Z][0-9]+-[0-9]+)(\s+([a-zA-Z][0-9]+|[a-zA-Z]-[a-zA-Z][0-9]+|[a-zA-Z][0-9]+-[0-9]+))*$")
     async def mark_minesweeper(self, event: AstrMessageEvent):
         game = self.game_mgr.get(event.session_id)
         if not game:
             return
 
-        positions = re.findall(r"[a-zA-Z][0-9]+", event.message_str)
+        tokens = event.message_str.split()[1:]
+        positions, invalid_tokens = parse_position_tokens(tokens)
         msgs = []
+
+        if invalid_tokens:
+            msgs.append("不支持的坐标表达式: " + " ".join(invalid_tokens))
 
         for pos in positions:
             xy = parse_position(pos)
