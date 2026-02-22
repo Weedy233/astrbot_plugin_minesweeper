@@ -67,10 +67,6 @@ class MinesweeperPlugin(Star):
     def _build_custom_spec(rows: int, cols: int, mines: int) -> tuple[GameSpec | None, str | None]:
         if rows <= 0 or cols <= 0:
             return None, "行数和列数必须大于 0"
-        if rows > 26:
-            return None, "行数最高为 26"
-        if cols > 99:
-            return None, "列数最高为 99"
         if mines <= 0:
             return None, "雷数必须大于 0"
         if mines >= rows * cols:
