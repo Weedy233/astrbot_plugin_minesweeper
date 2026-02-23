@@ -58,6 +58,7 @@ class PluginConfig(ConfigNode):
     def __init__(self, cfg: AstrBotConfig, context: Context):
         super().__init__(cfg)
         self.context = context
+        self.astrbot_config = cfg
 
         self.data_dir = StarTools.get_data_dir(self._plugin_name)
         self.plugin_dir = Path(get_astrbot_plugin_path()) / self._plugin_name
