@@ -70,7 +70,6 @@ class MineSweeper:
     def on_send_board(self, cb: Callable[[], None]):
         self._send_board_listeners.append(cb)
 
-
     def request_send_board(self):
         for cb in list(self._send_board_listeners):
             cb()
@@ -97,6 +96,10 @@ class MineSweeper:
             tile = self.tiles[x][y]
 
             if tile.is_open:
+                return OpenResult.DUP
+
+            # 已标记的地块无法被点击
+            if tile.marked:
                 return OpenResult.DUP
 
             tile.is_open = True
