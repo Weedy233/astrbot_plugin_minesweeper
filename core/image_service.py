@@ -61,7 +61,9 @@ class ImageService:
             await event.send(event.chain_result([Image.fromFileSystem(image_path)]))
             return
 
-        payloads = {"message": [{"type": "image", "data": {"file": image_path}}]}
+        payloads = {
+            "message": [{"type": "image", "data": {"file": f"file://{image_path}"}}]
+        }
         message_id = await self._send_msg(event, payloads)
         await self._recall_last_message(event)
         if message_id:

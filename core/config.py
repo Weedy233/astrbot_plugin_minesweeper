@@ -68,6 +68,10 @@ class PluginConfig(ConfigNode):
         self.skins_dir = self.plugin_dir / "skins"
         self.font_path = self.plugin_dir / "font.ttf"
 
+        logger.debug(f"[扫雷配置] plugin_dir={self.plugin_dir}")
+        logger.debug(f"[扫雷配置] skins_dir={self.skins_dir}")
+        logger.debug(f"[扫雷配置] skins_dir 存在={self.skins_dir.exists()}")
+
         self.level_mapping: dict[str, GameSpec] = self._parse_difficulty_level()
         self.level_keys = list(self.level_mapping.keys())
         self.default_preset = self.level_mapping[self.level_keys[0]]

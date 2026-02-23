@@ -13,7 +13,7 @@ _ROW_RANGE_RE = re.compile(r"^([a-z])-([a-z])(\d+)$", re.I)
 _COL_RANGE_RE = re.compile(r"^([a-z])(\d+)-(\d+)$", re.I)
 _RECT_RANGE_RE = re.compile(r"^([a-z])(\d+)-([a-z])(\d+)$", re.I)
 TOKEN_PATTERN = re.compile(
-    r"[a-zA-Z](?:-[a-zA-Z])?\d+(?:-\d+)?|[a-zA-Z]-[a-zA-Z]\d+|[a-zA-Z]\d+-[a-zA-Z]\d+"
+    r"[a-zA-Z]\d+-[a-zA-Z]\d+|[a-zA-Z](?:-[a-zA-Z])?\d+(?:-\d+)?|[a-zA-Z]-[a-zA-Z]\d+"
 )
 
 
