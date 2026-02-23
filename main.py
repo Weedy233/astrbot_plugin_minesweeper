@@ -1,4 +1,5 @@
 import asyncio
+import re
 import shutil
 
 from astrbot.api import logger
@@ -23,6 +24,7 @@ class MinesweeperPlugin(Star):
 
         self._cmd_handler: CommandHandler | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._mark_regex = None
 
     async def initialize(self):
         """插件加载时"""
@@ -41,7 +43,13 @@ class MinesweeperPlugin(Star):
             loop=self._loop,
         )
 
+        self._build_mark_regex()
         logger.info("[扫雷] 插件已加载")
+
+    def _build_mark_regex(self):
+        """根据配置构建标雷正则"""
+        prefix = self.cfg.mark_pattern
+        self._mark_regex = re.compile(rf"^{prefix}\s*[a-zA-Z]")
 
     async def terminate(self):
         """插件卸载时"""
@@ -85,29 +93,45 @@ class MinesweeperPlugin(Star):
 
     @filter.regex(r"^[a-zA-Z].*$")
     async def open_minesweeper(self, event):
-        if not self._cmd_handler:
+        if not self._cmd_handler or not self._mark_regex:
             return
-        tokens = self._extract_positions(event.message_str, allow_quote=False)
+        text = event.message_str.strip()
+        if self._mark_regex.match(text):
+            return
+        tokens = self._extract_positions(text, allow_mark=False)
         if not tokens:
             return
         logger.debug(f"[扫雷] 挖开命令，原始消息：{event.message_str}")
         await self._cmd_handler.open_positions(event, tokens)
 
-    @filter.regex(r"^('|标雷)\s*[a-zA-Z]")
+    @filter.regex(r"^.*$")
     async def mark_minesweeper(self, event):
-        if not self._cmd_handler:
+        if not self._cmd_handler or not self._mark_regex:
             return
-        tokens = self._extract_positions(event.message_str, allow_quote=True)
-        logger.debug(f"[扫雷] 标雷命令，原始消息：{event.message_str}")
+        text = event.message_str.strip()
+        if not self._mark_regex.match(text):
+            return
+        prefix = self._get_mark_prefix(text)
+        tokens = self._extract_positions(text, allow_mark=True, prefix=prefix)
+        logger.debug(f"[扫雷] 标雷命令，原始消息：{event.message_str}, 前缀：{prefix}")
         await self._cmd_handler.mark_positions(event, tokens)
 
+    def _get_mark_prefix(self, text: str) -> str | None:
+        """获取标雷前缀，支持自定义快捷键"""
+        for shortcut in self.cfg.mark_shortcuts:
+            if text.startswith(shortcut):
+                return shortcut
+        if text.startswith("标雷"):
+            return "标雷"
+        return None
+
     @staticmethod
-    def _extract_positions(text: str, allow_quote: bool = False) -> list[str]:
+    def _extract_positions(
+        text: str, allow_mark: bool = False, prefix: str | None = None
+    ) -> list[str]:
         from .core.utils import tokenize_positions
 
         text = text.strip()
-        if allow_quote and text.startswith("'"):
-            text = text[1:]
-        elif allow_quote and text.startswith("标雷"):
-            text = text[2:]
+        if allow_mark and prefix:
+            text = text[len(prefix) :]
         return tokenize_positions(text.strip())

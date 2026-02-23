@@ -52,6 +52,7 @@ class PluginConfig(ConfigNode):
     difficulty_level: list[str]
     ban_time: int
     use_gui: bool
+    mark_shortcuts: list[str]
 
     _plugin_name = "astrbot_plugin_minesweeper"
 
@@ -71,6 +72,8 @@ class PluginConfig(ConfigNode):
         self.level_keys = list(self.level_mapping.keys())
         self.default_preset = self.level_mapping[self.level_keys[0]]
 
+        self.mark_pattern = self._build_mark_pattern()
+
     def _parse_difficulty_level(self) -> dict[str, GameSpec]:
         result = {}
         if not self.difficulty_level:
@@ -85,3 +88,15 @@ class PluginConfig(ConfigNode):
 
     def get_spec(self, name: str) -> GameSpec:
         return self.level_mapping.get(name) or self.default_preset
+
+    def _build_mark_pattern(self) -> str:
+        """构建标雷正则前缀"""
+        if not self.mark_shortcuts:
+            return "标雷"
+        escaped = []
+        for s in self.mark_shortcuts:
+            if s in r"\^$.|?*+()[]{}":
+                escaped.append(f"\\{s}")
+            else:
+                escaped.append(s)
+        return f"(?:{'|'.join(escaped)}|标雷)"
