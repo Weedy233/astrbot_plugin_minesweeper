@@ -176,17 +176,19 @@ class GameActionHandler:
             error_msg = result_handler(res, pos)
 
             # 判断棋盘是否发生变化
-            # game.open() 返回 None 表示正常挖开（游戏继续），棋盘有变化
-            # game.open() 返回 OpenResult 枚举表示特殊状态（踩雷、胜利等）
-            # game.mark() 返回 None 表示成功标记，有变化
-            if res is None:
+            # 规则：
+            # 1. res is None → open/mark 成功，棋盘有变化
+            # 2. res == SweepResult.SUCCESS → sweep 成功，棋盘有变化
+            # 3. 有 error_msg → 需要显示错误/胜利信息，同时发送棋盘
+            is_sweep_success = res is not None and str(res).endswith(".SUCCESS")
+            if res is None or is_sweep_success:
                 # 正常操作，棋盘有变化
                 changed = True
-            elif error_msg:
+
+            if error_msg:
                 # 有错误信息（如踩雷、胜利、超出边界等），也需要发送图片
                 msgs.append(error_msg)
                 changed = True
-            # else: res 有值但无错误消息，不发送图片（理论上不应该发生）
 
             if game.is_over:
                 self.game_mgr.stop(event.session_id)
@@ -230,9 +232,9 @@ class GameActionHandler:
         if res == SweepResult.OUT:
             return f"{pos} 超出边界"
         elif res == SweepResult.NOT_OPENED:
-            return None  # 未挖开不提示（防刷屏）
+            return f"{pos} 未挖开，无法清扫"
         elif res == SweepResult.CONDITION_NOT_MET:
-            return None  # 不满足条件不提示（防刷屏）
+            return f"{pos} 不满足清扫条件"
         elif res == SweepResult.FAIL:
             return "很遗憾，游戏失败"
         elif res == SweepResult.WIN:
@@ -305,9 +307,9 @@ class CommandHandler:
                 Plain("扫雷游戏开始！"),
                 Image.fromBytes(game.draw()),
                 Plain(
-                    "a1 b2 c3 —— 挖开格子（支持区间：a-c5, a1-5）\n"
-                    "'a1 \"b2 —— 标记地雷（支持自定义符号）\n"
-                    "# a1 —— 清扫周围（标记数=数字时自动挖开）\n"
+                    "a1 a-c5 a1-5 —— 挖开格子\n"
+                    "'a1 \"b2 —— 标记地雷\n"
+                    "#a1 —— 清扫周围（标记数=数字时自动挖开）\n"
                     "雷盘 —— 查看棋盘\n"
                     "结束扫雷 —— 结束游戏"
                 ),
