@@ -143,6 +143,64 @@ class MineSweeper:
         self._notify()
         return None
 
+    def sweep(self, x: int, y: int) -> tuple[bool, int]:
+        """
+        清扫操作（中键）
+        当格子周围标记的雷数等于格子数字时，自动挖开周围未标记的格子
+
+        返回：(是否执行了清扫，清扫的格子数)
+        """
+        with self._lock:
+            if not self._is_valid(x, y):
+                return False, 0
+
+            tile = self.tiles[x][y]
+
+            # 格子必须已挖开才能清扫
+            if not tile.is_open:
+                return False, 0
+
+            # 检查周围 8 个格子
+            marked_count = 0
+            neighbors = []
+            for dx, dy in self._neighbors():
+                nx, ny = x + dx, y + dy
+                if self._is_valid(nx, ny):
+                    neighbor = self.tiles[nx][ny]
+                    neighbors.append((nx, ny, neighbor))
+                    if neighbor.marked:
+                        marked_count += 1
+
+            # 标记数必须等于格子数字才能清扫
+            if marked_count != tile.count:
+                return False, 0
+
+            # 挖开所有未标记的邻居
+            sweep_count = 0
+            for nx, ny, neighbor in neighbors:
+                if not neighbor.is_open and not neighbor.marked:
+                    # 直接挖开，不递归检查
+                    neighbor.is_open = True
+                    sweep_count += 1
+
+                    # 如果踩雷，游戏结束
+                    if neighbor.is_mine:
+                        neighbor.boom = True
+                        self.state = GameState.FAIL
+                        self._reveal_mines()
+                        self._notify()
+                        return True, sweep_count
+
+            # 检查是否胜利
+            if sweep_count > 0 and self._check_win():
+                self.state = GameState.WIN
+                self._reveal_mines()
+                self._notify()
+                return True, sweep_count
+
+        self._notify()
+        return sweep_count > 0, sweep_count
+
     # ========= 内部实现 =========
 
     def _all_tiles(self) -> Iterator[Tile]:

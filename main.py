@@ -44,12 +44,18 @@ class MinesweeperPlugin(Star):
         )
 
         self._build_mark_regex()
+        self._build_sweep_regex()
         logger.info("[扫雷] 插件已加载")
 
     def _build_mark_regex(self):
         """根据配置构建标雷正则"""
         prefix = self.cfg.mark_pattern
         self._mark_regex = re.compile(rf"^{prefix}\s*[a-zA-Z]")
+
+    def _build_sweep_regex(self):
+        """根据配置构建清扫正则"""
+        prefix = self.cfg.sweep_pattern
+        self._sweep_regex = re.compile(rf"^{prefix}\s*[a-zA-Z]")
 
     async def terminate(self):
         """插件卸载时"""
@@ -116,6 +122,18 @@ class MinesweeperPlugin(Star):
         logger.debug(f"[扫雷] 标雷命令，原始消息：{event.message_str}, 前缀：{prefix}")
         await self._cmd_handler.mark_positions(event, tokens)
 
+    @filter.regex(r"^.*$")
+    async def sweep_minesweeper(self, event):
+        if not self._cmd_handler or not self._sweep_regex:
+            return
+        text = event.message_str.strip()
+        if not self._sweep_regex.match(text):
+            return
+        prefix = self._get_sweep_prefix(text)
+        tokens = self._extract_positions(text, allow_mark=False, prefix=prefix)
+        logger.debug(f"[扫雷] 清扫命令，原始消息：{event.message_str}, 前缀：{prefix}")
+        await self._cmd_handler.sweep_positions(event, tokens)
+
     def _get_mark_prefix(self, text: str) -> str | None:
         """获取标雷前缀，支持自定义快捷键"""
         for shortcut in self.cfg.mark_shortcuts:
@@ -123,6 +141,15 @@ class MinesweeperPlugin(Star):
                 return shortcut
         if text.startswith("标雷"):
             return "标雷"
+        return None
+
+    def _get_sweep_prefix(self, text: str) -> str | None:
+        """获取清扫前缀，支持自定义快捷键"""
+        for shortcut in self.cfg.sweep_shortcuts:
+            if text.startswith(shortcut):
+                return shortcut
+        if text.startswith("清扫"):
+            return "清扫"
         return None
 
     @staticmethod

@@ -142,7 +142,7 @@ class GameActionHandler:
         tokens: list[str],
         action: Callable,
         result_handler: Callable,
-    ):
+    ) -> tuple[bool, MineSweeper | None]:
         """
         处理位置操作的公共逻辑
 
@@ -151,13 +151,17 @@ class GameActionHandler:
             tokens: 位置表达式列表
             action: 操作函数 (game.open 或 game.mark)
             result_handler: 结果处理函数，返回错误消息或 None
+
+        Returns:
+            (棋盘是否发生变化，游戏实例)
         """
         game = self.game_mgr.get(event.session_id)
         if not game:
-            return None
+            return False, None
 
         positions, invalid_tokens = parse_position_tokens(tokens)
         msgs = []
+        changed = False
 
         if invalid_tokens:
             msgs.append("不支持的坐标表达式：" + " ".join(invalid_tokens))
@@ -170,8 +174,19 @@ class GameActionHandler:
 
             res = action(game, *xy)
             error_msg = result_handler(res, pos)
-            if error_msg:
+
+            # 判断棋盘是否发生变化
+            # game.open() 返回 None 表示正常挖开（游戏继续），棋盘有变化
+            # game.open() 返回 OpenResult 枚举表示特殊状态（踩雷、胜利等）
+            # game.mark() 返回 None 表示成功标记，有变化
+            if res is None:
+                # 正常操作，棋盘有变化
+                changed = True
+            elif error_msg:
+                # 有错误信息（如踩雷、胜利、超出边界等），也需要发送图片
                 msgs.append(error_msg)
+                changed = True
+            # else: res 有值但无错误消息，不发送图片（理论上不应该发生）
 
             if game.is_over:
                 self.game_mgr.stop(event.session_id)
@@ -180,10 +195,12 @@ class GameActionHandler:
         if msgs:
             await event.send(event.plain_result("\n".join(msgs)))
 
-        img_path = self.image_service.save_cache(event, game.draw())
-        await self.image_service.send_with_replace(event, img_path)
+        # 只在棋盘有变化时发送图片
+        if changed:
+            img_path = self.image_service.save_cache(event, game.draw())
+            await self.image_service.send_with_replace(event, img_path)
 
-        return game
+        return changed, game
 
     @staticmethod
     def open_result_handler(res: OpenResult, pos: str) -> str | None:
@@ -304,14 +321,19 @@ class CommandHandler:
         """处理挖开格子操作"""
         uid = event.get_sender_id()
         logger.debug(f"[扫雷] 用户 {uid} 挖开位置：{tokens}")
-        game = await self.action_handler.handle_positions(
+        changed, game = await self.action_handler.handle_positions(
             event,
             tokens,
             lambda g, x, y: g.open(x, y),
             self.action_handler.open_result_handler,
         )
 
-        if game and game.is_fail and isinstance(event, AiocqhttpMessageEvent):
+        if (
+            changed
+            and game
+            and game.is_fail
+            and isinstance(event, AiocqhttpMessageEvent)
+        ):
             if self.cfg.ban_time > 0:
                 logger.info(f"[扫雷] 用户 {uid} 游戏失败，禁言 {self.cfg.ban_time} 秒")
                 await set_group_ban(event, ban_time=self.cfg.ban_time)
@@ -328,3 +350,45 @@ class CommandHandler:
             lambda g, x, y: g.mark(x, y),
             self.action_handler.mark_result_handler,
         )
+
+    async def sweep_positions(self, event: AstrMessageEvent, tokens: list[str]):
+        """处理清扫格子操作（中键）"""
+        uid = event.get_sender_id()
+        logger.debug(f"[扫雷] 用户 {uid} 清扫位置：{tokens}")
+
+        game = self.game_mgr.get(event.session_id)
+        if not game:
+            return
+
+        positions, invalid_tokens = parse_position_tokens(tokens)
+        msgs = []
+        changed = False
+
+        if invalid_tokens:
+            msgs.append("不支持的坐标表达式：" + " ".join(invalid_tokens))
+
+        for pos in positions:
+            xy = parse_position(pos)
+            if not xy:
+                msgs.append(f"位置 {pos} 不合法")
+                continue
+
+            swept, count = game.sweep(*xy)
+            if not swept:
+                msgs.append(f"{pos} 不满足清扫条件")
+            else:
+                changed = True
+                if count > 0:
+                    msgs.append(f"{pos} 清扫了 {count} 个格子")
+
+            if game.is_over:
+                self.game_mgr.stop(event.session_id)
+                break
+
+        if msgs:
+            await event.send(event.plain_result("\n".join(msgs)))
+
+        # 只在棋盘有变化时发送图片
+        if changed:
+            img_path = self.image_service.save_cache(event, game.draw())
+            await self.image_service.send_with_replace(event, img_path)

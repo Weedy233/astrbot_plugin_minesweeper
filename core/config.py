@@ -53,6 +53,7 @@ class PluginConfig(ConfigNode):
     ban_time: int
     use_gui: bool
     mark_shortcuts: list[str]
+    sweep_shortcuts: list[str]
 
     _plugin_name = "astrbot_plugin_minesweeper"
 
@@ -77,6 +78,7 @@ class PluginConfig(ConfigNode):
         self.default_preset = self.level_mapping[self.level_keys[0]]
 
         self.mark_pattern = self._build_mark_pattern()
+        self.sweep_pattern = self._build_sweep_pattern()
 
     def _parse_difficulty_level(self) -> dict[str, GameSpec]:
         result = {}
@@ -104,3 +106,15 @@ class PluginConfig(ConfigNode):
             else:
                 escaped.append(s)
         return f"(?:{'|'.join(escaped)}|标雷)"
+
+    def _build_sweep_pattern(self) -> str:
+        """构建清扫正则前缀"""
+        if not self.sweep_shortcuts:
+            return "清扫"
+        escaped = []
+        for s in self.sweep_shortcuts:
+            if s in r"\^$.|?*+()[]{}":
+                escaped.append(f"\\{s}")
+            else:
+                escaped.append(s)
+        return f"(?:{'|'.join(escaped)}|清扫)"
