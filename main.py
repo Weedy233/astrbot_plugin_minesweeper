@@ -104,7 +104,7 @@ class MinesweeperPlugin(Star):
         text = event.message_str.strip()
         if self._mark_regex.match(text):
             return
-        tokens = self._extract_positions(text, allow_mark=False)
+        tokens = self._extract_positions(text)
         if not tokens:
             return
         logger.debug(f"[扫雷] 挖开命令，原始消息：{event.message_str}")
@@ -118,7 +118,7 @@ class MinesweeperPlugin(Star):
         if not self._mark_regex.match(text):
             return
         prefix = self._get_mark_prefix(text)
-        tokens = self._extract_positions(text, allow_mark=True, prefix=prefix)
+        tokens = self._extract_positions(text, prefix)
         logger.debug(f"[扫雷] 标雷命令，原始消息：{event.message_str}, 前缀：{prefix}")
         await self._cmd_handler.mark_positions(event, tokens)
 
@@ -130,35 +130,31 @@ class MinesweeperPlugin(Star):
         if not self._sweep_regex.match(text):
             return
         prefix = self._get_sweep_prefix(text)
-        tokens = self._extract_positions(text, allow_mark=False, prefix=prefix)
+        tokens = self._extract_positions(text, prefix)
         logger.debug(f"[扫雷] 清扫命令，原始消息：{event.message_str}, 前缀：{prefix}")
         await self._cmd_handler.sweep_positions(event, tokens)
 
-    def _get_mark_prefix(self, text: str) -> str | None:
-        """获取标雷前缀，支持自定义快捷键"""
-        for shortcut in self.cfg.mark_shortcuts:
+    def _get_prefix(self, text: str, shortcuts: list[str], keyword: str) -> str | None:
+        """通用：获取操作前缀"""
+        for shortcut in shortcuts:
             if text.startswith(shortcut):
                 return shortcut
-        if text.startswith("标雷"):
-            return "标雷"
+        if text.startswith(keyword):
+            return keyword
         return None
+
+    def _get_mark_prefix(self, text: str) -> str | None:
+        return self._get_prefix(text, self.cfg.mark_shortcuts, "标雷")
 
     def _get_sweep_prefix(self, text: str) -> str | None:
-        """获取清扫前缀，支持自定义快捷键"""
-        for shortcut in self.cfg.sweep_shortcuts:
-            if text.startswith(shortcut):
-                return shortcut
-        if text.startswith("清扫"):
-            return "清扫"
-        return None
+        return self._get_prefix(text, self.cfg.sweep_shortcuts, "清扫")
 
     @staticmethod
-    def _extract_positions(
-        text: str, allow_mark: bool = False, prefix: str | None = None
-    ) -> list[str]:
+    def _extract_positions(text: str, prefix: str | None = None) -> list[str]:
+        """通用：从文本中提取坐标列表"""
         from .core.utils import tokenize_positions
 
         text = text.strip()
-        if allow_mark and prefix:
+        if prefix:
             text = text[len(prefix) :]
         return tokenize_positions(text.strip())

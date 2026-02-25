@@ -9,7 +9,7 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
 )
 
 from .game import GameManager, MineSweeper
-from .model import GameSpec, MarkResult, OpenResult
+from .model import GameSpec, MarkResult, OpenResult, SweepResult
 from .renderer import MineSweeperRenderer
 from .skin import SkinManager
 from .config import PluginConfig
@@ -219,10 +219,25 @@ class GameActionHandler:
         if res == MarkResult.OUT:
             return f"{pos} 超出边界"
         elif res == MarkResult.OPENED:
-            return f"{pos} 已挖开，不能标记"
+            return None  # 已挖开不提示（防刷屏）
         elif res == MarkResult.WIN:
             return "恭喜你获得游戏胜利！"
         return None
+
+    @staticmethod
+    def sweep_result_handler(res: SweepResult, pos: str) -> str | None:
+        """清扫操作结果处理"""
+        if res == SweepResult.OUT:
+            return f"{pos} 超出边界"
+        elif res == SweepResult.NOT_OPENED:
+            return None  # 未挖开不提示（防刷屏）
+        elif res == SweepResult.CONDITION_NOT_MET:
+            return None  # 不满足条件不提示（防刷屏）
+        elif res == SweepResult.FAIL:
+            return "很遗憾，游戏失败"
+        elif res == SweepResult.WIN:
+            return "恭喜你获得游戏胜利！"
+        return None  # SUCCESS
 
 
 class CommandHandler:
@@ -290,8 +305,9 @@ class CommandHandler:
                 Plain("扫雷游戏开始！"),
                 Image.fromBytes(game.draw()),
                 Plain(
-                    "a1b2c3 —— 挖开格子\n"
-                    "标雷 c4 / 'c4 —— 标记地雷\n"
+                    "a1 b2 c3 —— 挖开格子（支持区间：a-c5, a1-5）\n"
+                    "'a1 \"b2 —— 标记地雷（支持自定义符号）\n"
+                    "# a1 —— 清扫周围（标记数=数字时自动挖开）\n"
                     "雷盘 —— 查看棋盘\n"
                     "结束扫雷 —— 结束游戏"
                 ),
@@ -355,40 +371,9 @@ class CommandHandler:
         """处理清扫格子操作（中键）"""
         uid = event.get_sender_id()
         logger.debug(f"[扫雷] 用户 {uid} 清扫位置：{tokens}")
-
-        game = self.game_mgr.get(event.session_id)
-        if not game:
-            return
-
-        positions, invalid_tokens = parse_position_tokens(tokens)
-        msgs = []
-        changed = False
-
-        if invalid_tokens:
-            msgs.append("不支持的坐标表达式：" + " ".join(invalid_tokens))
-
-        for pos in positions:
-            xy = parse_position(pos)
-            if not xy:
-                msgs.append(f"位置 {pos} 不合法")
-                continue
-
-            swept, count = game.sweep(*xy)
-            if not swept:
-                msgs.append(f"{pos} 不满足清扫条件")
-            else:
-                changed = True
-                if count > 0:
-                    msgs.append(f"{pos} 清扫了 {count} 个格子")
-
-            if game.is_over:
-                self.game_mgr.stop(event.session_id)
-                break
-
-        if msgs:
-            await event.send(event.plain_result("\n".join(msgs)))
-
-        # 只在棋盘有变化时发送图片
-        if changed:
-            img_path = self.image_service.save_cache(event, game.draw())
-            await self.image_service.send_with_replace(event, img_path)
+        await self.action_handler.handle_positions(
+            event,
+            tokens,
+            lambda g, x, y: g.sweep(x, y),
+            self.action_handler.sweep_result_handler,
+        )

@@ -95,26 +95,21 @@ class PluginConfig(ConfigNode):
     def get_spec(self, name: str) -> GameSpec:
         return self.level_mapping.get(name) or self.default_preset
 
-    def _build_mark_pattern(self) -> str:
-        """构建标雷正则前缀"""
-        if not self.mark_shortcuts:
-            return "标雷"
+    @staticmethod
+    def _build_pattern(shortcuts: list[str], keyword: str) -> str:
+        """通用：构建操作前缀正则模式"""
+        if not shortcuts:
+            return keyword
         escaped = []
-        for s in self.mark_shortcuts:
+        for s in shortcuts:
             if s in r"\^$.|?*+()[]{}":
                 escaped.append(f"\\{s}")
             else:
                 escaped.append(s)
-        return f"(?:{'|'.join(escaped)}|标雷)"
+        return f"(?:{'|'.join(escaped)}|{keyword})"
+
+    def _build_mark_pattern(self) -> str:
+        return self._build_pattern(self.mark_shortcuts, "标雷")
 
     def _build_sweep_pattern(self) -> str:
-        """构建清扫正则前缀"""
-        if not self.sweep_shortcuts:
-            return "清扫"
-        escaped = []
-        for s in self.sweep_shortcuts:
-            if s in r"\^$.|?*+()[]{}":
-                escaped.append(f"\\{s}")
-            else:
-                escaped.append(s)
-        return f"(?:{'|'.join(escaped)}|清扫)"
+        return self._build_pattern(self.sweep_shortcuts, "清扫")

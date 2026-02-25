@@ -9,6 +9,7 @@ from .model import (
     GameState,
     MarkResult,
     OpenResult,
+    SweepResult,
     Tile,
 )
 from .renderer import MineSweeperRenderer
@@ -143,22 +144,20 @@ class MineSweeper:
         self._notify()
         return None
 
-    def sweep(self, x: int, y: int) -> tuple[bool, int]:
+    def sweep(self, x: int, y: int) -> SweepResult:
         """
         清扫操作（中键）
         当格子周围标记的雷数等于格子数字时，自动挖开周围未标记的格子
-
-        返回：(是否执行了清扫，清扫的格子数)
         """
         with self._lock:
             if not self._is_valid(x, y):
-                return False, 0
+                return SweepResult.OUT
 
             tile = self.tiles[x][y]
 
             # 格子必须已挖开才能清扫
             if not tile.is_open:
-                return False, 0
+                return SweepResult.NOT_OPENED
 
             # 检查周围 8 个格子
             marked_count = 0
@@ -173,7 +172,7 @@ class MineSweeper:
 
             # 标记数必须等于格子数字才能清扫
             if marked_count != tile.count:
-                return False, 0
+                return SweepResult.CONDITION_NOT_MET
 
             # 挖开所有未标记的邻居
             sweep_count = 0
@@ -189,17 +188,17 @@ class MineSweeper:
                         self.state = GameState.FAIL
                         self._reveal_mines()
                         self._notify()
-                        return True, sweep_count
+                        return SweepResult.FAIL
 
             # 检查是否胜利
             if sweep_count > 0 and self._check_win():
                 self.state = GameState.WIN
                 self._reveal_mines()
                 self._notify()
-                return True, sweep_count
+                return SweepResult.WIN
 
         self._notify()
-        return sweep_count > 0, sweep_count
+        return SweepResult.SUCCESS if sweep_count > 0 else SweepResult.CONDITION_NOT_MET
 
     # ========= 内部实现 =========
 
