@@ -139,18 +139,20 @@ class GameActionHandler:
     async def handle_positions(
         self,
         event: AstrMessageEvent,
-        tokens: list[str],
+        tokens: list[str] | list[list[str]],
         action: Callable,
         result_handler: Callable,
+        multi_line: bool = False,
     ) -> tuple[bool, MineSweeper | None]:
         """
         处理位置操作的公共逻辑
 
         Args:
             event: 消息事件
-            tokens: 位置表达式列表
+            tokens: 位置表达式列表（多行模式下每行一个独立的 tokens 列表）
             action: 操作函数 (game.open 或 game.mark)
             result_handler: 结果处理函数，返回错误消息或 None
+            multi_line: 是否多行模式（True 时 tokens 为 list[list[str]]）
 
         Returns:
             (棋盘是否发生变化，游戏实例)
@@ -159,40 +161,79 @@ class GameActionHandler:
         if not game:
             return False, None
 
-        positions, invalid_tokens = parse_position_tokens(tokens)
         msgs = []
         changed = False
 
-        if invalid_tokens:
-            msgs.append("不支持的坐标表达式：" + " ".join(invalid_tokens))
+        # 多行模式：tokens 是 list[list[str]]，每行独立执行
+        if multi_line:
+            line_results = []
+            for line_tokens_list in tokens:
+                # line_tokens_list 是 list[str]
+                positions, invalid_tokens = parse_position_tokens(line_tokens_list)
+                line_changed = False
+                line_msgs = []
 
-        for pos in positions:
-            xy = parse_position(pos)
-            if not xy:
-                msgs.append(f"位置 {pos} 不合法")
-                continue
+                if invalid_tokens:
+                    line_msgs.append("不支持的坐标表达式：" + " ".join(invalid_tokens))
 
-            res = action(game, *xy)
-            error_msg = result_handler(res, pos)
+                for pos in positions:
+                    xy = parse_position(pos)
+                    if not xy:
+                        line_msgs.append(f"位置 {pos} 不合法")
+                        continue
 
-            # 判断棋盘是否发生变化
-            # 规则：
-            # 1. res is None → open/mark 成功，棋盘有变化
-            # 2. res == SweepResult.SUCCESS → sweep 成功，棋盘有变化
-            # 3. 有 error_msg → 需要显示错误/胜利信息，同时发送棋盘
-            is_sweep_success = res is not None and str(res).endswith(".SUCCESS")
-            if res is None or is_sweep_success:
-                # 正常操作，棋盘有变化
-                changed = True
+                    res = action(game, *xy)
+                    error_msg = result_handler(res, pos)
 
-            if error_msg:
-                # 有错误信息（如踩雷、胜利、超出边界等），也需要发送图片
-                msgs.append(error_msg)
-                changed = True
+                    is_sweep_success = res is not None and str(res).endswith(".SUCCESS")
+                    if res is None or is_sweep_success:
+                        line_changed = True
 
-            if game.is_over:
-                self.game_mgr.stop(event.session_id)
-                break
+                    if error_msg:
+                        line_msgs.append(error_msg)
+                        line_changed = True
+
+                    if game.is_over:
+                        self.game_mgr.stop(event.session_id)
+                        break
+
+                line_results.append((line_changed, line_msgs))
+                if game.is_over:
+                    break
+
+            # 汇总所有行的结果
+            for line_changed, line_msgs in line_results:
+                if line_msgs:
+                    msgs.extend(line_msgs)
+                if line_changed:
+                    changed = True
+        else:
+            # 单行模式：原有逻辑
+            positions, invalid_tokens = parse_position_tokens(tokens)
+
+            if invalid_tokens:
+                msgs.append("不支持的坐标表达式：" + " ".join(invalid_tokens))
+
+            for pos in positions:
+                xy = parse_position(pos)
+                if not xy:
+                    msgs.append(f"位置 {pos} 不合法")
+                    continue
+
+                res = action(game, *xy)
+                error_msg = result_handler(res, pos)
+
+                is_sweep_success = res is not None and str(res).endswith(".SUCCESS")
+                if res is None or is_sweep_success:
+                    changed = True
+
+                if error_msg:
+                    msgs.append(error_msg)
+                    changed = True
+
+                if game.is_over:
+                    self.game_mgr.stop(event.session_id)
+                    break
 
         if msgs:
             await event.send(event.plain_result("\n".join(msgs)))
@@ -336,14 +377,20 @@ class CommandHandler:
         return event.chain_result([Image.fromBytes(game.draw())])
 
     async def open_positions(self, event: AstrMessageEvent, tokens: list[str]):
-        """处理挖开格子操作"""
+        """处理挖开格子操作（支持多行命令）"""
         uid = event.get_sender_id()
         logger.debug(f"[扫雷] 用户 {uid} 挖开位置：{tokens}")
+
+        # 解析多行命令
+        lines = self._parse_multi_line_tokens(tokens)
+        multi_line = len(lines) > 1
+
         changed, game = await self.action_handler.handle_positions(
             event,
-            tokens,
+            lines if multi_line else tokens,
             lambda g, x, y: g.open(x, y),
             self.action_handler.open_result_handler,
+            multi_line=multi_line,
         )
 
         if (
@@ -359,23 +406,58 @@ class CommandHandler:
                 logger.info(f"[扫雷] 用户 {uid} 游戏失败")
 
     async def mark_positions(self, event: AstrMessageEvent, tokens: list[str]):
-        """处理标记地雷操作"""
+        """处理标记地雷操作（支持多行命令）"""
         uid = event.get_sender_id()
         logger.debug(f"[扫雷] 用户 {uid} 标记位置：{tokens}")
+
+        # 解析多行命令
+        lines = self._parse_multi_line_tokens(tokens)
+        multi_line = len(lines) > 1
+
         await self.action_handler.handle_positions(
             event,
-            tokens,
+            lines if multi_line else tokens,
             lambda g, x, y: g.mark(x, y),
             self.action_handler.mark_result_handler,
+            multi_line=multi_line,
         )
 
     async def sweep_positions(self, event: AstrMessageEvent, tokens: list[str]):
-        """处理清扫格子操作（中键）"""
+        """处理清扫格子操作（中键，支持多行命令）"""
         uid = event.get_sender_id()
         logger.debug(f"[扫雷] 用户 {uid} 清扫位置：{tokens}")
+
+        # 解析多行命令
+        lines = self._parse_multi_line_tokens(tokens)
+        multi_line = len(lines) > 1
+
         await self.action_handler.handle_positions(
             event,
-            tokens,
+            lines if multi_line else tokens,
             lambda g, x, y: g.sweep(x, y),
             self.action_handler.sweep_result_handler,
+            multi_line=multi_line,
         )
+
+    @staticmethod
+    def _parse_multi_line_tokens(tokens: list[str]) -> list[list[str]] | list[str]:
+        """
+        解析多行命令
+        如果 tokens 中包含换行符分隔的命令，则按行拆分
+        例如：['a1', 'b2\\nc3', 'd4'] → [['a1'], ['b2'], ['c3'], ['d4']]
+        返回：多行时为 list[list[str]]，单行时为原始 list[str]
+        """
+        lines = []
+        for token in tokens:
+            # 每个 token 可能包含多个由换行分隔的命令
+            sub_tokens = token.split("\n")
+            for sub_token in sub_tokens:
+                sub_token = sub_token.strip()
+                if sub_token:
+                    lines.append([sub_token])
+
+        # 如果只有一行，返回原始 tokens
+        if len(lines) <= 1:
+            return tokens
+
+        return lines

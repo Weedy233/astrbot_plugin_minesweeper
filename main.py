@@ -104,6 +104,7 @@ class MinesweeperPlugin(Star):
         text = event.message_str.strip()
         if self._mark_regex.match(text):
             return
+        # 支持多行命令：按换行符分割
         tokens = self._extract_positions(text)
         if not tokens:
             return
