@@ -97,14 +97,63 @@ class MinesweeperPlugin(Star):
         if result:
             yield result
 
+    @filter.regex(r"^[\s\S]*\n[\s\S]*$")
+    async def multiline_minesweeper(self, event):
+        if not self._cmd_handler or not self._mark_regex or not self._sweep_regex:
+            return
+
+        text = event.message_str
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            return
+
+        all_msgs: list[str] = []
+        any_changed = False
+        game = None
+
+        for line in lines:
+            if self._mark_regex.match(line):
+                prefix = self._get_mark_prefix(line)
+                tokens = self._extract_positions(line, prefix)
+                changed, game, msgs = await self._cmd_handler.mark_positions(
+                    event, tokens, defer_output=True
+                )
+            elif self._sweep_regex.match(line):
+                prefix = self._get_sweep_prefix(line)
+                tokens = self._extract_positions(line, prefix)
+                changed, game, msgs = await self._cmd_handler.sweep_positions(
+                    event, tokens, defer_output=True
+                )
+            elif re.match(r"^[a-zA-Z]", line):
+                tokens = self._extract_positions(line)
+                changed, game, msgs = await self._cmd_handler.open_positions(
+                    event, tokens, defer_output=True
+                )
+            else:
+                continue
+
+            if msgs:
+                all_msgs.extend(msgs)
+            if changed:
+                any_changed = True
+            if game and game.is_over:
+                break
+
+        if all_msgs:
+            await event.send(event.plain_result("\n".join(all_msgs)))
+
+        if any_changed:
+            await self._cmd_handler.send_board(event, game)
+
     @filter.regex(r"^[a-zA-Z].*$")
     async def open_minesweeper(self, event):
         if not self._cmd_handler or not self._mark_regex:
             return
         text = event.message_str.strip()
+        if "\n" in text:
+            return
         if self._mark_regex.match(text):
             return
-        # 支持多行命令：按换行符分割
         tokens = self._extract_positions(text)
         if not tokens:
             return
@@ -116,6 +165,8 @@ class MinesweeperPlugin(Star):
         if not self._cmd_handler or not self._mark_regex:
             return
         text = event.message_str.strip()
+        if "\n" in text:
+            return
         if not self._mark_regex.match(text):
             return
         prefix = self._get_mark_prefix(text)
@@ -128,6 +179,8 @@ class MinesweeperPlugin(Star):
         if not self._cmd_handler or not self._sweep_regex:
             return
         text = event.message_str.strip()
+        if "\n" in text:
+            return
         if not self._sweep_regex.match(text):
             return
         prefix = self._get_sweep_prefix(text)

@@ -139,120 +139,73 @@ class GameActionHandler:
     async def handle_positions(
         self,
         event: AstrMessageEvent,
-        tokens: list[str] | list[list[str]],
+        tokens: list[str],
         action: Callable,
         result_handler: Callable,
-        multi_line: bool = False,
-    ) -> tuple[bool, MineSweeper | None]:
-        """
-        处理位置操作的公共逻辑
+        *,
+        send_msgs: bool = True,
+        send_board: bool = True,
+    ) -> tuple[bool, MineSweeper | None, list[str]]:
 
-        Args:
-            event: 消息事件
-            tokens: 位置表达式列表（多行模式下每行一个独立的 tokens 列表）
-            action: 操作函数 (game.open 或 game.mark)
-            result_handler: 结果处理函数，返回错误消息或 None
-            multi_line: 是否多行模式（True 时 tokens 为 list[list[str]]）
-
-        Returns:
-            (棋盘是否发生变化，游戏实例)
-        """
         game = self.game_mgr.get(event.session_id)
         if not game:
-            return False, None
+            return False, None, []
 
-        msgs = []
+        positions, invalid_tokens = parse_position_tokens(tokens)
+        msgs: list[str] = []
         changed = False
 
-        # 多行模式：tokens 是 list[list[str]]，每行独立执行
-        if multi_line:
-            line_results = []
-            for line_tokens_list in tokens:
-                # line_tokens_list 是 list[str]
-                positions, invalid_tokens = parse_position_tokens(line_tokens_list)
-                line_changed = False
-                line_msgs = []
+        if invalid_tokens:
+            msgs.append("不支持的坐标表达式：" + " ".join(invalid_tokens))
 
-                if invalid_tokens:
-                    line_msgs.append("不支持的坐标表达式：" + " ".join(invalid_tokens))
+        for pos in positions:
+            xy = parse_position(pos)
+            if not xy:
+                msgs.append(f"位置 {pos} 不合法")
+                continue
 
-                for pos in positions:
-                    xy = parse_position(pos)
-                    if not xy:
-                        line_msgs.append(f"位置 {pos} 不合法")
-                        continue
+            res = action(game, *xy)
+            error_msg = result_handler(res, pos)
 
-                    res = action(game, *xy)
-                    error_msg = result_handler(res, pos)
-
-                    is_sweep_success = res is not None and str(res).endswith(".SUCCESS")
-                    if res is None or is_sweep_success:
-                        line_changed = True
-
-                    if error_msg:
-                        line_msgs.append(error_msg)
-                        line_changed = True
-
-                    if game.is_over:
-                        self.game_mgr.stop(event.session_id)
-                        break
-
-                line_results.append((line_changed, line_msgs))
-                if game.is_over:
-                    break
-
-            # 汇总所有行的结果
-            for line_changed, line_msgs in line_results:
-                if line_msgs:
-                    msgs.extend(line_msgs)
-                if line_changed:
+            if res is None:
+                changed = True
+            elif isinstance(res, OpenResult):
+                if res in (OpenResult.FAIL, OpenResult.WIN):
                     changed = True
-        else:
-            # 单行模式：原有逻辑
-            positions, invalid_tokens = parse_position_tokens(tokens)
-
-            if invalid_tokens:
-                msgs.append("不支持的坐标表达式：" + " ".join(invalid_tokens))
-
-            for pos in positions:
-                xy = parse_position(pos)
-                if not xy:
-                    msgs.append(f"位置 {pos} 不合法")
-                    continue
-
-                res = action(game, *xy)
-                error_msg = result_handler(res, pos)
-
-                is_sweep_success = res is not None and str(res).endswith(".SUCCESS")
-                if res is None or is_sweep_success:
+            elif isinstance(res, MarkResult):
+                if res == MarkResult.WIN:
                     changed = True
+            elif isinstance(res, SweepResult) and res in (
+                SweepResult.SUCCESS,
+                SweepResult.WIN,
+                SweepResult.FAIL,
+            ):
+                changed = True
 
-                if error_msg:
-                    msgs.append(error_msg)
-                    changed = True
+            if error_msg:
+                msgs.append(error_msg)
 
-                if game.is_over:
-                    self.game_mgr.stop(event.session_id)
-                    break
+            if game.is_over:
+                self.game_mgr.stop(event.session_id)
+                break
 
-        if msgs:
+        if msgs and send_msgs:
             await event.send(event.plain_result("\n".join(msgs)))
 
-        # 只在棋盘有变化时发送图片
-        if changed:
+        if changed and send_board:
             img_path = self.image_service.save_cache(event, game.draw())
             await self.image_service.send_with_replace(event, img_path)
 
-        return changed, game
+        return changed, game, msgs
 
     @staticmethod
     def open_result_handler(res: OpenResult, pos: str) -> str | None:
         """挖开操作结果处理"""
         if res == OpenResult.OUT:
             return f"{pos} 超出边界"
-        elif res == OpenResult.FAIL:
+        if res == OpenResult.FAIL:
             return "很遗憾，游戏失败"
-        elif res == OpenResult.WIN:
+        if res == OpenResult.WIN:
             return "恭喜你获得游戏胜利！"
         return None
 
@@ -261,9 +214,9 @@ class GameActionHandler:
         """标记操作结果处理"""
         if res == MarkResult.OUT:
             return f"{pos} 超出边界"
-        elif res == MarkResult.OPENED:
+        if res == MarkResult.OPENED:
             return None  # 已挖开不提示（防刷屏）
-        elif res == MarkResult.WIN:
+        if res == MarkResult.WIN:
             return "恭喜你获得游戏胜利！"
         return None
 
@@ -272,13 +225,13 @@ class GameActionHandler:
         """清扫操作结果处理"""
         if res == SweepResult.OUT:
             return f"{pos} 超出边界"
-        elif res == SweepResult.NOT_OPENED:
+        if res == SweepResult.NOT_OPENED:
             return f"{pos} 未挖开，无法清扫"
-        elif res == SweepResult.CONDITION_NOT_MET:
+        if res == SweepResult.CONDITION_NOT_MET:
             return f"{pos} 不满足清扫条件"
-        elif res == SweepResult.FAIL:
+        if res == SweepResult.FAIL:
             return "很遗憾，游戏失败"
-        elif res == SweepResult.WIN:
+        if res == SweepResult.WIN:
             return "恭喜你获得游戏胜利！"
         return None  # SUCCESS
 
@@ -376,88 +329,90 @@ class CommandHandler:
         logger.debug(f"[扫雷] 用户 {event.get_sender_id()} 查看棋盘")
         return event.chain_result([Image.fromBytes(game.draw())])
 
-    async def open_positions(self, event: AstrMessageEvent, tokens: list[str]):
-        """处理挖开格子操作（支持多行命令）"""
+    async def open_positions(
+        self,
+        event: AstrMessageEvent,
+        tokens: list[str],
+        *,
+        defer_output: bool = False,
+    ) -> tuple[bool, MineSweeper | None, list[str]]:
+        """处理挖开格子操作"""
         uid = event.get_sender_id()
         logger.debug(f"[扫雷] 用户 {uid} 挖开位置：{tokens}")
 
-        # 解析多行命令
-        lines = self._parse_multi_line_tokens(tokens)
-        multi_line = len(lines) > 1
-
-        changed, game = await self.action_handler.handle_positions(
+        changed, game, msgs = await self.action_handler.handle_positions(
             event,
-            lines if multi_line else tokens,
+            tokens,
             lambda g, x, y: g.open(x, y),
             self.action_handler.open_result_handler,
-            multi_line=multi_line,
+            send_msgs=not defer_output,
+            send_board=not defer_output,
         )
 
         if (
-            changed
+            not defer_output
+            and changed
             and game
             and game.is_fail
             and isinstance(event, AiocqhttpMessageEvent)
         ):
-            if self.cfg.ban_time > 0:
-                logger.info(f"[扫雷] 用户 {uid} 游戏失败，禁言 {self.cfg.ban_time} 秒")
-                await set_group_ban(event, ban_time=self.cfg.ban_time)
-            else:
-                logger.info(f"[扫雷] 用户 {uid} 游戏失败")
+                if self.cfg.ban_time > 0:
+                    logger.info(
+                        f"[扫雷] 用户 {uid} 游戏失败，禁言 {self.cfg.ban_time} 秒"
+                    )
+                    await set_group_ban(event, ban_time=self.cfg.ban_time)
+                else:
+                    logger.info(f"[扫雷] 用户 {uid} 游戏失败")
 
-    async def mark_positions(self, event: AstrMessageEvent, tokens: list[str]):
-        """处理标记地雷操作（支持多行命令）"""
+        return changed, game, msgs
+
+    async def mark_positions(
+        self,
+        event: AstrMessageEvent,
+        tokens: list[str],
+        *,
+        defer_output: bool = False,
+    ) -> tuple[bool, MineSweeper | None, list[str]]:
         uid = event.get_sender_id()
         logger.debug(f"[扫雷] 用户 {uid} 标记位置：{tokens}")
 
-        # 解析多行命令
-        lines = self._parse_multi_line_tokens(tokens)
-        multi_line = len(lines) > 1
-
-        await self.action_handler.handle_positions(
+        changed, game, msgs = await self.action_handler.handle_positions(
             event,
-            lines if multi_line else tokens,
+            tokens,
             lambda g, x, y: g.mark(x, y),
             self.action_handler.mark_result_handler,
-            multi_line=multi_line,
+            send_msgs=not defer_output,
+            send_board=not defer_output,
         )
+        return changed, game, msgs
 
-    async def sweep_positions(self, event: AstrMessageEvent, tokens: list[str]):
-        """处理清扫格子操作（中键，支持多行命令）"""
+    async def sweep_positions(
+        self,
+        event: AstrMessageEvent,
+        tokens: list[str],
+        *,
+        defer_output: bool = False,
+    ) -> tuple[bool, MineSweeper | None, list[str]]:
         uid = event.get_sender_id()
         logger.debug(f"[扫雷] 用户 {uid} 清扫位置：{tokens}")
 
-        # 解析多行命令
-        lines = self._parse_multi_line_tokens(tokens)
-        multi_line = len(lines) > 1
-
-        await self.action_handler.handle_positions(
+        changed, game, msgs = await self.action_handler.handle_positions(
             event,
-            lines if multi_line else tokens,
+            tokens,
             lambda g, x, y: g.sweep(x, y),
             self.action_handler.sweep_result_handler,
-            multi_line=multi_line,
+            send_msgs=not defer_output,
+            send_board=not defer_output,
         )
+        return changed, game, msgs
 
-    @staticmethod
-    def _parse_multi_line_tokens(tokens: list[str]) -> list[list[str]] | list[str]:
-        """
-        解析多行命令
-        如果 tokens 中包含换行符分隔的命令，则按行拆分
-        例如：['a1', 'b2\\nc3', 'd4'] → [['a1'], ['b2'], ['c3'], ['d4']]
-        返回：多行时为 list[list[str]]，单行时为原始 list[str]
-        """
-        lines = []
-        for token in tokens:
-            # 每个 token 可能包含多个由换行分隔的命令
-            sub_tokens = token.split("\n")
-            for sub_token in sub_tokens:
-                sub_token = sub_token.strip()
-                if sub_token:
-                    lines.append([sub_token])
-
-        # 如果只有一行，返回原始 tokens
-        if len(lines) <= 1:
-            return tokens
-
-        return lines
+    async def send_board(
+        self, event: AstrMessageEvent, game: MineSweeper | None = None
+    ) -> bool:
+        if game is None:
+            game = self.game_mgr.get(event.session_id)
+        if not game:
+            return False
+        img_path = self.image_service.save_cache(event, game.draw())
+        await self.image_service.send_with_replace(event, img_path)
+        return True
