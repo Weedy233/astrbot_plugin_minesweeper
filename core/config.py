@@ -1,6 +1,8 @@
 # config.py
 from __future__ import annotations
 
+import re
+
 from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any, get_type_hints
@@ -100,13 +102,8 @@ class PluginConfig(ConfigNode):
         """通用：构建操作前缀正则模式"""
         if not shortcuts:
             return keyword
-        escaped = []
-        for s in shortcuts:
-            if s in r"\^$.|?*+()[]{}":
-                escaped.append(f"\\{s}")
-            else:
-                escaped.append(s)
-        return f"(?:{'|'.join(escaped)}|{keyword})"
+        escaped = [re.escape(s) for s in shortcuts]
+        return f"(?:{'|'.join(escaped)}|{re.escape(keyword)})"
 
     def _build_mark_pattern(self) -> str:
         return self._build_pattern(self.mark_shortcuts, "标雷")

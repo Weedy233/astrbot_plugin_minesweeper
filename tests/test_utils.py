@@ -118,6 +118,25 @@ class TestParsePositionTokens:
         assert positions == ["a1", "a2", "a3", "b5", "c5", "d5", "e1"]
         assert invalid == []
 
+    def test_invalid_tokens_collected(self):
+        tokens = ["a1", "invalid", "b2"]
+        positions, invalid = parse_position_tokens(tokens)
+        assert "a1" in positions
+        assert "b2" in positions
+        assert invalid == ["invalid"]
+
+    def test_all_invalid_tokens(self):
+        tokens = ["invalid", "hello", "123"]
+        positions, invalid = parse_position_tokens(tokens)
+        assert positions == []
+        assert invalid == ["invalid", "hello", "123"]
+
+    def test_mixed_valid_invalid_ranges(self):
+        tokens = ["a-c5", "invalid", "d1-3", "bad"]
+        positions, invalid = parse_position_tokens(tokens)
+        assert positions == ["a5", "b5", "c5", "d1", "d2", "d3"]
+        assert invalid == ["invalid", "bad"]
+
 
 class TestCommandScenarios:
     """测试实际命令场景"""

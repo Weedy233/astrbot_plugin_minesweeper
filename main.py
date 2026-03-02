@@ -160,7 +160,7 @@ class MinesweeperPlugin(Star):
         logger.debug(f"[扫雷] 挖开命令，原始消息：{event.message_str}")
         await self._cmd_handler.open_positions(event, tokens)
 
-    @filter.regex(r"^.*$")
+    @filter.regex(r"^(标雷|[^\w\s]).*$")
     async def mark_minesweeper(self, event):
         if not self._cmd_handler or not self._mark_regex:
             return
@@ -174,7 +174,7 @@ class MinesweeperPlugin(Star):
         logger.debug(f"[扫雷] 标雷命令，原始消息：{event.message_str}, 前缀：{prefix}")
         await self._cmd_handler.mark_positions(event, tokens)
 
-    @filter.regex(r"^.*$")
+    @filter.regex(r"^(清扫|[^\w\s]).*$")
     async def sweep_minesweeper(self, event):
         if not self._cmd_handler or not self._sweep_regex:
             return
