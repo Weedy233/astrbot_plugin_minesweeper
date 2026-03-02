@@ -1,6 +1,4 @@
-import pytest
 from core.command_handler import GameInitializer
-from core.config import PluginConfig
 
 
 class MockPluginConfig:

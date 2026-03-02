@@ -1,4 +1,3 @@
-import pytest
 from core.utils import (
     tokenize_positions,
     expand_position_token,
