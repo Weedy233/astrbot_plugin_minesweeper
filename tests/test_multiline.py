@@ -40,6 +40,22 @@ class DummyGame:
         return b"img"
 
 
+class DummyGameWithOver:
+    """Game that becomes over after a certain action"""
+
+    action_count = 0
+    is_over = False
+
+    def draw(self) -> bytes:
+        return b"img"
+
+    def mark(self, x, y):
+        self.action_count += 1
+        if self.action_count >= 2:
+            self.is_over = True
+        return None
+
+
 async def _run(handler: GameActionHandler, event: DummyEvent, tokens, action, rh, **kw):
     return await handler.handle_positions(event, tokens, action, rh, **kw)
 
@@ -125,3 +141,83 @@ def test_python_regex_matches_multiline():
     assert multiline_re.match("a1\nb2")
     assert multiline_re.match("'a1\n#b2")
     assert not multiline_re.match("a1 b2")
+
+
+def test_handle_positions_invalid_coordinate_expressions():
+    mgr = GameManager()
+    mgr.create("s", DummyGame())
+    img = DummyImageService()
+    h = GameActionHandler(mgr, img, ban_time=0)
+    event = DummyEvent("s")
+
+    async def run():
+        changed, game, msgs = await _run(
+            h,
+            event,
+            ["123", "xyz", "a", "1"],
+            lambda g, x, y: SweepResult.SUCCESS,
+            lambda res, pos: None,
+            send_msgs=False,
+            send_board=False,
+        )
+        assert changed is False
+        assert game is not None
+        assert msgs == ["不支持的坐标表达式：123 xyz a 1"]
+        assert img.sent == 0
+
+    asyncio.run(run())
+
+
+def test_multiline_integration_batches_and_renders_once():
+    mgr = GameManager()
+    mgr.create("s", DummyGame())
+    img = DummyImageService()
+    h = GameActionHandler(mgr, img, ban_time=0)
+    event = DummyEvent("s")
+
+    async def run():
+        changed, game, msgs = await _run(
+            h,
+            event,
+            ["a1", "b2", "c3"],
+            lambda g, x, y: None,
+            lambda res, pos: None,
+            send_msgs=True,
+            send_board=True,
+        )
+        assert changed is True
+        assert game is not None
+        assert msgs == []
+        assert img.sent == 1, "Should render board only once after batch processing"
+
+    asyncio.run(run())
+
+
+def test_multiline_stops_on_game_over():
+    mgr = GameManager()
+    game = DummyGameWithOver()
+    mgr.create("s", game)
+    img = DummyImageService()
+    h = GameActionHandler(mgr, img, ban_time=0)
+    event = DummyEvent("s")
+
+    async def run():
+        changed, game_result, msgs = await _run(
+            h,
+            event,
+            ["a1", "b2", "c3", "d4"],
+            lambda g, x, y: g.mark(x, y),
+            lambda res, pos: None,
+            send_msgs=True,
+            send_board=True,
+        )
+        assert changed is True
+        assert game_result is not None
+        assert msgs == []
+        assert game.action_count == 2, (
+            "Should stop processing after 2 actions (when game becomes over)"
+        )
+        assert img.sent == 1, "Should render board only once after early termination"
+        assert game.is_over is True
+
+    asyncio.run(run())

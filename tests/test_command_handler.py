@@ -135,3 +135,30 @@ class TestGameInitializer:
         assert spec is not None
         assert skin_index is None
         assert err is None
+
+    def test_parse_args_custom_with_keyword_and_skin(self):
+        spec, skin_index, err = self.initializer.parse_args(
+            ["自定义", "12", "12", "25", "2"]
+        )
+        assert spec is not None
+        assert spec.rows == 12
+        assert spec.cols == 12
+        assert spec.mines == 25
+        assert skin_index == 2
+        assert err is None
+
+    def test_parse_args_custom_with_keyword_partial_invalid(self):
+        spec, skin_index, err = self.initializer.parse_args(
+            ["自定义", "abc", "12", "25"]
+        )
+        assert spec is None
+        assert err is not None
+
+    def test_parse_args_custom_numbers_with_skin(self):
+        spec, skin_index, err = self.initializer.parse_args(["8", "8", "15", "1"])
+        assert spec is not None
+        assert spec.rows == 8
+        assert spec.cols == 8
+        assert spec.mines == 15
+        assert skin_index == 1
+        assert err is None
