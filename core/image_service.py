@@ -56,16 +56,19 @@ class ImageService:
             self._last_message_id.pop(key, None)
 
     async def send_with_replace(self, event: AstrMessageEvent, image_path: str):
-        """发送图片并替换（撤回）同 session + 同用户的上一条消息"""
+        """发送图片并替换（撤回上一条后发送新图）"""
         if not isinstance(event, AiocqhttpMessageEvent):
             await event.send(event.chain_result([Image.fromFileSystem(image_path)]))
             return
 
+        # 先撤回上一条消息
+        await self._recall_last_message(event)
+
+        # 再发送新图片
         payloads = {
             "message": [{"type": "image", "data": {"file": f"file://{image_path}"}}]
         }
         message_id = await self._send_msg(event, payloads)
-        await self._recall_last_message(event)
         if message_id:
             key = self._make_key(event)
             self._last_message_id[key] = message_id

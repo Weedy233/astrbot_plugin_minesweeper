@@ -296,16 +296,20 @@ class CommandHandler:
         if self.gui_launcher.should_launch():
             self.gui_launcher.launch(game)
 
+        # 动态生成快捷键帮助文本
+        mark_examples = " ".join(f"{s}a1" for s in self.cfg.mark_shortcuts)
+        sweep_examples = " ".join(f"{s}a1" for s in self.cfg.sweep_shortcuts)
+
         yield event.chain_result(
             [
                 Plain("扫雷游戏开始！"),
                 Image.fromBytes(game.draw()),
                 Plain(
-                    "a1 a-c5 a1-5 —— 挖开格子\n"
-                    "'a1 \"b2 —— 标记地雷\n"
-                    "#a1 —— 清扫周围（标记数=数字时自动挖开）\n"
-                    "雷盘 —— 查看棋盘\n"
-                    "结束扫雷 —— 结束游戏"
+                    f"a1 a-c5 a1-5 —— 挖开格子\n"
+                    f"{mark_examples} —— 标记地雷\n"
+                    f"{sweep_examples} —— 清扫周围（标记数=数字时自动挖开）\n"
+                    f"雷盘 —— 查看棋盘\n"
+                    f"结束扫雷 —— 结束游戏"
                 ),
             ]
         )
@@ -356,13 +360,11 @@ class CommandHandler:
             and game.is_fail
             and isinstance(event, AiocqhttpMessageEvent)
         ):
-                if self.cfg.ban_time > 0:
-                    logger.info(
-                        f"[扫雷] 用户 {uid} 游戏失败，禁言 {self.cfg.ban_time} 秒"
-                    )
-                    await set_group_ban(event, ban_time=self.cfg.ban_time)
-                else:
-                    logger.info(f"[扫雷] 用户 {uid} 游戏失败")
+            if self.cfg.ban_time > 0:
+                logger.info(f"[扫雷] 用户 {uid} 游戏失败，禁言 {self.cfg.ban_time} 秒")
+                await set_group_ban(event, ban_time=self.cfg.ban_time)
+            else:
+                logger.info(f"[扫雷] 用户 {uid} 游戏失败")
 
         return changed, game, msgs
 
