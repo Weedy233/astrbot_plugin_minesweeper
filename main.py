@@ -6,6 +6,9 @@ from astrbot.api import logger
 from astrbot.api.event import filter
 from astrbot.api.star import Context, Star
 from astrbot.core import AstrBotConfig
+from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
+    AiocqhttpMessageEvent,
+)
 
 from .core.command_handler import CommandHandler
 from .core.config import PluginConfig
@@ -25,6 +28,7 @@ class MinesweeperPlugin(Star):
         self._cmd_handler: CommandHandler | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._mark_regex = None
+        self._sweep_regex = None
 
     async def initialize(self):
         """插件加载时"""
@@ -144,6 +148,24 @@ class MinesweeperPlugin(Star):
 
         if any_changed:
             await self._cmd_handler.send_board(event, game)
+
+        # 多行命令后的禁言检查（与单行命令保持一致）
+        if (
+            any_changed
+            and game
+            and game.is_fail
+            and isinstance(
+                event,
+                AiocqhttpMessageEvent,
+            )
+            and self._cmd_handler.cfg.ban_time > 0
+        ):
+            logger.info(
+                f"[扫雷] 用户 {event.get_sender_id()} 游戏失败，禁言 {self._cmd_handler.cfg.ban_time} 秒"
+            )
+            from .core.utils import set_group_ban
+
+            await set_group_ban(event, ban_time=self._cmd_handler.cfg.ban_time)
 
     @filter.regex(r"^[a-zA-Z].*$")
     async def open_minesweeper(self, event):
