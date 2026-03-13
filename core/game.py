@@ -174,15 +174,13 @@ class MineSweeper:
             if marked_count != tile.count:
                 return SweepResult.CONDITION_NOT_MET
 
-            # 挖开所有未标记的邻居
+            # 挖开所有未标记的邻居（使用与 open() 相同的逻辑）
             sweep_count = 0
             for nx, ny, neighbor in neighbors:
                 if not neighbor.is_open and not neighbor.marked:
-                    # 直接挖开，不递归检查
                     neighbor.is_open = True
                     sweep_count += 1
 
-                    # 如果踩雷，游戏结束
                     if neighbor.is_mine:
                         neighbor.boom = True
                         self.state = GameState.FAIL
@@ -190,11 +188,14 @@ class MineSweeper:
                         self._notify()
                         return SweepResult.FAIL
 
+                    # 如果是空白格（count == 0），递归展开
+                    if neighbor.count == 0:
+                        self._spread(nx, ny)
+
             # 检查是否胜利
-            if sweep_count > 0 and self._check_win():
+            if self._check_win():
                 self.state = GameState.WIN
                 self._reveal_mines()
-                self._notify()
                 return SweepResult.WIN
 
         self._notify()
